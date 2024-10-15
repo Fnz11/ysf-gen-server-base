@@ -1,0 +1,29 @@
+import { PrismaClient } from "@prisma/client";
+import logger from "./logger.utils"; 
+
+const prisma = new PrismaClient({
+  log: [
+    { emit: "event", level: "query" },
+    { emit: "event", level: "error" },
+    { emit: "event", level: "info" },
+    { emit: "event", level: "warn" },
+  ],
+});
+
+prisma.$on("error", (e: any) => {
+  logger.error(JSON.stringify(e));
+});
+
+prisma.$on("info", (e: any) => {
+  logger.info(JSON.stringify(e));
+});
+
+prisma.$on("warn", (e: any) => {
+  logger.warn(JSON.stringify(e));
+});
+
+// prisma.$on("query", (e: any) => {
+//   logger.info(JSON.stringify(e));
+// }); 
+
+export default prisma;

@@ -1,0 +1,1258 @@
+// v1/services/user.service.ts
+
+// ========== Import ==========
+import { sendEmail } from "../utils/emailer.utils";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { getErrorMessages } from "../utils/zError.utils";
+import {
+  CreateUserProps,
+  createUserSchema,
+  EmailProps,
+  emailSchema,
+  LoginProps,
+  loginSchema,
+  loginWithGoogleSchema,
+  ResetPasswordProps,
+  resetPasswordSchema,
+  SignUpProps,
+  signUpSchema,
+  UpdatePasswordProps,
+  updatePasswordSchema,
+  updateUserSchema,
+  VerifyEmailProps,
+  verifyEmailSchema,
+} from "../validators/user.validator";
+import { uploadImage } from "../utils/cloudinary.utils";
+import logger from "../utils/logger.utils";
+import prisma from "../utils/prisma.utils";
+import ResponseError from "../error/response.error";
+import * as XLSX from "xlsx";
+import { Workbook } from "exceljs";
+import {
+  handleCreateBatch,
+  handleDelete,
+  handleDeleteBatch,
+  handleDownload,
+  handleGetById,
+  handleMutate,
+} from "../utils/service.utils";
+import { GoogleUserInfoProps } from "../types/general.types";
+import { OAuthProvider, Role } from "@prisma/client";
+
+// ========== Init ==========
+const Users = prisma.users;
+const EmailVerifies = prisma.email_verifies;
+// const EmailVerifies = prisma.emailVerifies;
+const SECRET_KEY = process.env.SECRET_KEY as string;
+
+// ========== Services ==========
+class UserService {
+  private static readonly NAME = "users";
+
+  // GET ALL
+  static async getAll({
+    offset,
+    limit,
+    first_name,
+    last_name,
+    user_id,
+    username,
+    email,
+    role,
+    phone,
+    birth_date,
+    gender,
+    email_verified,
+    provider_id,
+  }: {
+    offset?: string | null;
+    limit?: string | null;
+    user_id?: string | null;
+    first_name?: string | null;
+    last_name?: string | null;
+    username?: string | null;
+    email?: string | null;
+    role?: string | null;
+    phone?: string | null;
+    birth_date?: string | null;
+    gender?: string | null;
+    email_verified?: string | null;
+    provider_id?: string | null;
+  }) {
+    const pageOffset = offset ? parseInt(offset, 10) : 0;
+    const pageLimit = limit ? parseInt(limit, 10) : 10;
+
+    const query: any = {};
+
+    const andConditions = [];
+    const orConditions = [];
+
+    if (user_id) {
+      andConditions.push({
+        user_id: { contains: user_id.trim() },
+      });
+    }
+
+    if (first_name) {
+      andConditions.push({
+        user_detail: { first_name: { contains: first_name.trim() } },
+      });
+    }
+
+    if (last_name) {
+      andConditions.push({
+        user_detail: { last_name: { contains: last_name.trim() } },
+      });
+    }
+
+    if (username) {
+      andConditions.push({ username: { contains: username.trim() } });
+    }
+
+    if (email) {
+      andConditions.push(
+        { email: { contains: email.trim() } },
+        { oauth_users: {} }
+      );
+    }
+
+    if (role) {
+      andConditions.push({ role: role.trim() });
+    }
+
+    if (phone) {
+      andConditions.push({
+        user_detail: { phone: { contains: phone.trim() } },
+      });
+    }
+
+    if (birth_date) {
+      andConditions.push({
+        user_detail: { birth_date: { equals: new Date(birth_date.trim()) } },
+      });
+    }
+
+    if (gender) {
+      andConditions.push({
+        user_detail: { gender: gender.trim() },
+      });
+    }
+
+    if (email_verified) {
+      orConditions.push(
+        {
+          local_user: {
+            email_verified: email_verified == "true" ? true : false,
+          },
+        },
+        ...(email_verified == "true"
+          ? [
+              {
+                oauth_user: {
+                  isNot: null,
+                },
+              },
+            ]
+          : [])
+      );
+    } 
+
+    if (provider_id) {
+      andConditions.push({
+        oauth_user: { provider_id: { contains: provider_id.trim() } },
+      });
+    }
+
+    // If we have any AND conditions, assign them to the query
+    if (andConditions?.length > 0) {
+      query.AND = andConditions;
+    }
+
+    if (orConditions?.length > 0) {
+      query.OR = orConditions;
+    }
+
+    // Fetch total count for pagination
+    const totalData = await Users.count({
+      where: query,
+    });
+
+    // Check if users exist
+    const users = await Users.findMany({
+      where: query,
+      skip: pageOffset,
+      take: pageLimit,
+      include: {
+        local_user: true,
+        oauth_user: true,
+        user_detail: {
+          include: {
+            address: true,
+            image: true,
+            banner: true,
+          },
+        },
+        user_preference: true,
+      },
+    });
+
+    // Remove password
+    const finalUsers =
+      users?.map((user: any) => {
+        const {
+          local_user,
+          oauth_user,
+          user_detail,
+          user_preference,
+          ...rest_user
+        } = user;
+        const { address, ...rest_user_detail } = user_detail;
+        let rest_local_user: any = null;
+        if (local_user) {
+          const { password, ...rest } = local_user || {};
+          rest_local_user = rest;
+        }
+        return {
+          ...rest_user,
+          ...(rest_local_user && { ...rest_local_user }),
+          ...(oauth_user && { ...oauth_user }),
+          ...rest_user_detail,
+          ...(address && { ...address }),
+          ...(user_preference && { ...user_preference }),
+        };
+      }) || [];
+
+    // Return users without password
+    return {
+      status: 200,
+      message: "Get users successfully",
+      data: {
+        users: finalUsers,
+        totalData,
+      },
+    };
+  }
+
+  // GET BY ID
+  static async getById(id: string) {
+    return await handleGetById({
+      id,
+      findService: async (id: string | number) => {
+        const user = await Users.findUnique({
+          where: { user_id: id as string },
+          include: {
+            local_user: true,
+            oauth_user: true,
+            user_detail: {
+              include: {
+                address: true,
+                image: true,
+                banner: true,
+              },
+            },
+            user_preference: true,
+          },
+        });
+
+        const {
+          local_user,
+          oauth_user,
+          user_detail,
+          user_preference,
+          ...rest_user
+        } = user as any;
+        const { address, ...rest_user_detail } = user_detail as unknown as any;
+        let rest_local_user: any = null;
+        if (local_user) {
+          const { password, ...rest } = local_user as unknown as any;
+          rest_local_user = rest;
+        }
+
+        // Remove password
+        const finalUsers = {
+          ...rest_user,
+          ...(rest_local_user && { ...rest_local_user }),
+          ...(oauth_user && { ...oauth_user }),
+          ...rest_user_detail,
+          ...(address && { ...address }),
+          ...(user_preference && { ...user_preference }),
+        };
+        console.log("PFPFPF", finalUsers);
+        // Return users without password
+        return finalUsers;
+      },
+      name: this.NAME,
+    });
+  }
+
+  // CREATE
+  static async create(data: CreateUserProps) {
+    return await handleMutate({
+      data,
+      name: this.NAME,
+      schema: createUserSchema,
+      type: "create",
+      mutateService: async (params: { id?: string | number; data: any }) => {
+        const { data } = params;
+        const password = bcrypt.hashSync(data.password, 10);
+
+        let imageProp: any = null;
+        if (
+          data.image !== undefined &&
+          data.image?.length > 0 &&
+          !data.image?.startsWith("http")
+        ) {
+          const image = await uploadImage({
+            image: data.image,
+            folder: "users/image",
+          });
+          if (image) {
+            imageProp = {
+              url: image.url,
+              public_id: image.public_id,
+            };
+          }
+        }
+        let bannerProp: any = null;
+        if (
+          data.banner !== undefined &&
+          data.banner?.length > 0 &&
+          !data.banner?.startsWith("http")
+        ) {
+          const banner = await uploadImage({
+            image: data.banner,
+            folder: "users/banner",
+          });
+          if (banner) {
+            bannerProp = {
+              url: banner.url,
+              public_id: banner.public_id,
+            };
+          }
+        }
+
+        const res = await prisma.local_users.create({
+          data: {
+            email: data.email,
+            password: password,
+            email_verified: false,
+            password_updated_at: new Date(),
+            user: {
+              create: {
+                email: data.email,
+                role: data.role,
+                username: data.username,
+                created_at: new Date(),
+                user_preference: {
+                  create: {
+                    email_updates: false,
+                  },
+                },
+                user_detail: {
+                  create: {
+                    ...(imageProp && {
+                      image: {
+                        create: imageProp,
+                      },
+                    }),
+                    ...(bannerProp && {
+                      banner: {
+                        create: bannerProp,
+                      },
+                    }),
+                    ...(data.first_name && { first_name: data.first_name }),
+                    ...(data.last_name && { last_name: data.last_name }),
+                    ...(data.phone && { phone: data.phone }),
+                    ...(data.birth_date && { birth_date: data.birth_date }),
+                    gender: data.gender || "NOT_SPECIFIED",
+                    ...(data.address && {
+                      address: {
+                        create: {
+                          ...(data.address && { address: data.address }),
+                          ...(data.country && { country: data.country }),
+                          ...(data.province && { province: data.province }),
+                          ...(data.city && { city: data.city }),
+                          ...(data.zip && { zip: data.zip }),
+                        },
+                      },
+                    }),
+                  },
+                },
+              },
+            },
+          },
+        });
+        console.log(res);
+        return res;
+      },
+    });
+  }
+
+  // CREATE BATCH
+  static async createBatch(file: Express.Multer.File) {
+    return await handleCreateBatch({
+      file,
+      header: ["nim", "nip", "username", "nama", "email", "password", "status"],
+      createService: (data: any) => this.create(data),
+      handleAddData: (item: any, index: number) => {
+        const { nim, nip, username, nama, email, password, status } = item;
+        let data: any;
+        if (nip || nim) {
+          data = {
+            username: username,
+            password: password,
+            nama: nama,
+            email: email,
+            status: status,
+            anggota: {
+              connect: {
+                nip: nip,
+                nim: nim,
+              },
+            },
+          };
+        } else {
+          data = {
+            username: username,
+            password: password,
+            nama: nama,
+            email: email,
+            status: status,
+          };
+        }
+        return {
+          ...data,
+        };
+      },
+    });
+  }
+
+  // UPDATE
+  static async update(id: string, data: CreateUserProps) {
+    return await handleMutate({
+      data,
+      id,
+      findService: (id: string | number) =>
+        Users.findUnique({ where: { user_id: id as string } }),
+      name: this.NAME,
+      schema: updateUserSchema,
+      type: "update",
+      mutateService: async (params: { id?: string | number; data: any }) => {
+        const { id, data } = params;
+        console.log("DADADADA", data);
+        let password = null;
+        if (
+          data?.password != undefined ||
+          data?.password != null ||
+          data?.password?.length == 0
+        ) {
+          password = bcrypt.hashSync(data.password, 10);
+        }
+
+        // Check if the username already exists
+        const existingUser = await Users.findUnique({
+          where: { username: data.username },
+          include: {
+            local_user: true,
+          },
+        });
+
+        console.log("Existing User:", existingUser);
+        console.log("Current User ID:", id);
+        // If the username exists and belongs to a different user, throw an error
+        if (existingUser && existingUser.user_id !== id) {
+          throw new Error("Username already taken");
+        }
+
+        let imageProp: any = null;
+        if (
+          data.image !== undefined &&
+          data.image?.length > 0 &&
+          !data.image?.startsWith("http")
+        ) {
+          const image = await uploadImage({
+            image: data.image,
+            folder: "users/image",
+          });
+          if (image) {
+            imageProp = {
+              url: image.url,
+              public_id: image.public_id,
+            };
+          }
+        }
+
+        let bannerProp: any = null;
+        if (
+          data.banner !== undefined &&
+          data.banner?.length > 0 &&
+          !data.banner?.startsWith("http")
+        ) {
+          const banner = await uploadImage({
+            image: data.banner,
+            folder: "users/banner",
+          });
+          if (banner) {
+            bannerProp = {
+              url: banner.url,
+              public_id: banner.public_id,
+            };
+          }
+        }
+
+        const address = {
+          ...(data.address && { address: data.address }),
+          ...(data.country && { country: data.country }),
+          ...(data.province && { province: data.province }),
+          ...(data.city && { city: data.city }),
+          ...(data.zip && { zip: data.zip }),
+        };
+
+        console.log("PROPROPR", imageProp, bannerProp, address);
+
+        return Users.update({
+          where: { user_id: id as string },
+          data: {
+            email: data.email,
+            role: data.role,
+            username: data.username,
+            created_at: new Date(),
+            user_preference: {
+              update: {
+                email_updates: data.email_updates || false,
+              },
+            },
+            user_detail: {
+              update: {
+                ...(data.first_name && { first_name: data.first_name }),
+                ...(data.last_name && { last_name: data.last_name }),
+                ...(data.phone && { phone: data.phone }),
+                ...(data.birth_date && {
+                  birth_date: data.birth_date
+                    ? new Date(data.birth_date)
+                    : undefined,
+                }),
+                ...(imageProp && {
+                  image: {
+                    upsert: {
+                      create: imageProp,
+                      update: imageProp,
+                    },
+                  },
+                }),
+                ...(bannerProp && {
+                  banner: {
+                    upsert: {
+                      create: bannerProp,
+                      update: bannerProp,
+                    },
+                  },
+                }),
+                gender: data.gender || "NOT_SPECIFIED",
+                ...(data.address && {
+                  address: {
+                    upsert: {
+                      create: address,
+                      update: address,
+                    },
+                  },
+                }),
+              },
+            },
+            ...(existingUser &&
+              existingUser.local_user && {
+                local_user: {
+                  update: {
+                    email: data.email,
+                    ...(password && { password }),
+                  },
+                },
+              }),
+          },
+        });
+      },
+    });
+  }
+
+  // DELETE
+  static async delete(id: string) {
+    return await handleDelete({
+      id,
+      name: this.NAME,
+      findService: (id: string | number) =>
+        Users.findUnique({
+          where: { user_id: id as string },
+        }),
+      deleteService: (id: string | number) =>
+        Users.delete({ where: { user_id: id as string } }),
+      bukuCondition: true,
+    });
+  }
+
+  // DELETE BATCH
+  static async deleteBatch(ids: string[]) {
+    return await handleDeleteBatch({
+      ids,
+      deleteService: async (id: string) => await this.delete(id),
+      name: "penerbit",
+    });
+  }
+
+  // SIGN UP
+  static async signUp(data: SignUpProps) {
+    // Check if data exist
+    if (!data) {
+      throw new ResponseError("Missing data", 400);
+    }
+
+    const signUpData = {
+      ...data,
+      isEmailVerified: false,
+    };
+
+    // Validate data
+    const error = getErrorMessages(signUpSchema, data);
+    if (error != null) {
+      throw new ResponseError(error, 400);
+    }
+
+    // Create user
+    let user = await this.create(signUpData);
+    // Check if user created
+    if (user.status != 200) {
+      throw new ResponseError("User creation failed", 500);
+    }
+
+    // Generate verification code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Save verification code
+    await EmailVerifies.upsert({
+      where: { user_id: (user.data as any)?.user_id },
+      update: { code },
+      create: { code, user_id: (user.data as any)?.user_id },
+    });
+
+    // Send verification code via email
+    await sendEmail(
+      (user.data as any)?.email,
+      "Email Verification Code",
+      `Your verification code is: ${code}`
+    );
+
+    logger.info("[SIGN UP User]: " + JSON.stringify(user));
+
+    // Return created user
+    return user;
+  }
+
+  // SIGN IN
+  static async signIn(data: LoginProps) {
+    // Check if data exist
+    if (!data) {
+      throw new ResponseError("Missing data", 400);
+    }
+
+    // Validate data
+    const error = getErrorMessages(loginSchema, data);
+    if (error != null) {
+      throw new ResponseError(error, 400);
+    }
+
+    // Check if user exists
+    const user = await prisma.local_users.findUnique({
+      where: {
+        email: data.email,
+      },
+      include: {
+        user: {
+          include: {
+            user_preference: true,
+            user_detail: {
+              include: {
+                address: true,
+                banner: true,
+                image: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    if (!user) {
+      throw new ResponseError("User not found", 404);
+    }
+
+    if (user.email_verified == false) {
+      throw new ResponseError("Email not verified", 400);
+    }
+
+    // Check if password matches
+    const isPasswordValid = await bcrypt.compare(data.password, user.password);
+    if (!isPasswordValid) {
+      throw new ResponseError("Invalid credentials", 401);
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      {
+        user_id: user.user.user_id,
+        role: user.user.role,
+        email: user.email,
+        is_local: true,
+      },
+      SECRET_KEY,
+      {
+        expiresIn: "1h",
+      }
+    );
+
+    logger.info("[LOGIN User] : ", token);
+
+    // Return user and token
+    const { password, local_user_id, ...userWithoutPassword } = user;
+
+    return {
+      status: 200,
+      message: "Login successful",
+      data: { user: { ...userWithoutPassword, user_id: user.user_id }, token },
+    };
+  }
+
+  // LOGIN WITH GOOGLE
+  static async signInWithGoogle(data: {
+    id_token: string;
+    access_token: string;
+  }) {
+    // Check if data exist
+    if (!data) {
+      throw new ResponseError("Missing data", 400);
+    }
+
+    // Validate data
+    const error = getErrorMessages(loginWithGoogleSchema, data);
+    if (error != null) {
+      throw new ResponseError(error, 400);
+    }
+
+    // Check user info
+    const userInfo = await fetch(
+      `https://www.googleapis.com/oauth2/v1/userinfo?alt=json&access_token=${data.access_token}`,
+      {
+        headers: {
+          Authorization: `Bearer ${data.id_token}`,
+        },
+      }
+    );
+    const userInfoData = (await userInfo.json()) as GoogleUserInfoProps;
+    if (!userInfoData) {
+      throw new ResponseError("User info not found", 404);
+    }
+
+    // Check if user exists
+    let user = await prisma.oauth_users.findFirst({
+      where: {
+        provider_id: userInfoData.id,
+        provider: "GOOGLE" as OAuthProvider,
+      },
+      include: {
+        user: {
+          include: {
+            user_detail: true,
+          },
+        },
+      },
+    });
+
+    // Create user if not exists
+    if (!user) {
+      const username = userInfoData.name.split(" ");
+      const first_name = username[0];
+      const last_name = username.length > 1 ? username[1] : "";
+      let baseUsername = userInfoData.name.replace(" ", "");
+      let uniqueUsername = baseUsername;
+
+      // Check if username exists and generate a unique one
+      let usernameExists = await Users.findUnique({
+        where: { username: uniqueUsername },
+      });
+
+      while (usernameExists) {
+        const randomNumber = Math.floor(Math.random() * 1000000);
+        uniqueUsername = `${baseUsername}-${randomNumber}`;
+        usernameExists = await Users.findUnique({
+          where: { username: uniqueUsername },
+        });
+      }
+
+      user = await prisma.oauth_users.create({
+        data: {
+          provider_id: userInfoData.id,
+          provider: "GOOGLE" as OAuthProvider,
+          email: userInfoData.email,
+          user: {
+            create: {
+              username: uniqueUsername,
+              role: "USER" as Role,
+              email: userInfoData.email,
+              user_detail: {
+                create: {
+                  first_name,
+                  image: {
+                    create: {
+                      url: userInfoData.picture,
+                    },
+                  },
+                  last_name,
+                  phone: "",
+                },
+              },
+              user_preference: {
+                create: {
+                  email_updates: false,
+                },
+              },
+            },
+          },
+        },
+        include: {
+          user: {
+            include: {
+              user_detail: true,
+              user_preference: true,
+            },
+          },
+        },
+      });
+    }
+
+    // Generate JWT
+    const token = jwt.sign(
+      {
+        user_id: user.user_id,
+        role: user.user.role,
+        email: user.email,
+        is_local: false,
+      },
+      SECRET_KEY,
+      {
+        expiresIn: "1h",
+      }
+    );
+
+    // Return user and token
+    return {
+      status: 200,
+      message: "Login successfuly",
+      data: { user, token },
+    };
+  }
+
+  // UPDATE PASSWORD
+  static async updatePassword(user_id: string, data: UpdatePasswordProps) {
+    // Check if data exist
+    if (!user_id || !data) {
+      throw new ResponseError("Missing username or data", 400);
+    }
+
+    // Validate data
+    const error = getErrorMessages(updatePasswordSchema, data);
+    if (error != null) {
+      throw new ResponseError(error, 400);
+    }
+
+    // Check if user exists
+    const user = await Users.findUnique({
+      where: { user_id: user_id },
+      include: {
+        local_user: true,
+      },
+    });
+
+    if (!user) {
+      throw new ResponseError("User not found", 404);
+    }
+
+    // Check if password matches
+    console.log(data.old_password, user.local_user?.password);
+    const isPasswordValid =
+      (await bcrypt.compare(
+        data.old_password,
+        user.local_user?.password as string
+      )) || data.old_password == user.local_user?.password;
+    if (!isPasswordValid) {
+      throw new ResponseError("Invalid credentials", 401);
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(data.new_password, 10);
+    await prisma.local_users.update({
+      where: { user_id: user.local_user?.local_user_id },
+      data: {
+        password: hashedPassword,
+        password_updated_at: new Date(),
+      },
+    });
+
+    // Create JWT token
+    const token = jwt.sign(
+      {
+        user_id: user.user_id,
+        role: user.role,
+        email: (user.local_user as any).email,
+        is_local: true,
+      },
+      SECRET_KEY,
+      {
+        expiresIn: "1h",
+      }
+    );
+
+    logger.info("[LOGIN User] : ", token);
+
+    // Return user and token
+    const { password, ...userWithoutPassword } = user.local_user as any;
+
+    logger.info(
+      "[UPDATE Password] : ",
+      JSON.stringify({ userWithoutPassword })
+    );
+
+    return {
+      status: 200,
+      message: "Successfuly updated password",
+      data: { user: { ...userWithoutPassword }, token },
+    };
+  }
+
+  // FORGOT PASSWORD
+  static async forgotPassword(email: EmailProps) {
+    // Check if email exist
+    if (!email) {
+      throw new ResponseError("Missing email", 400);
+    }
+
+    // Check if user exists
+    const user = await prisma.local_users.findUnique({
+      where: { email },
+    });
+    if (!user) {
+      throw new ResponseError("User not found", 404);
+    }
+
+    // Check last time verification code was sent
+    const email_verify = await EmailVerifies.findMany({
+      where: { user_id: user?.user_id },
+      orderBy: { created_at: "desc" }, // Get the most recent code first
+      take: 1,
+    });
+    if (email_verify.length > 0) {
+      const lastCodeDate = new Date(email_verify[0].created_at);
+      const now = new Date();
+      const diff = now.getTime() - lastCodeDate.getTime();
+      const diffSeconds = diff / 1000;
+      logger.info("[RESEND Verify Code]: " + diffSeconds);
+
+      if (diffSeconds < 60) {
+        throw new ResponseError(
+          "Please wait for 60 seconds before sending another code",
+          400
+        );
+      }
+
+      // Delete old verification codes
+      await EmailVerifies.deleteMany({
+        where: { user_id: user?.user_id },
+      });
+    }
+
+    // Validate email
+    const error = getErrorMessages(emailSchema, email);
+    if (error != null) {
+      throw new ResponseError(error, 400);
+    }
+
+    // Generate verification code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Save verification code
+    await EmailVerifies.upsert({
+      where: { user_id: user?.user_id },
+      update: { code },
+      create: { code, user_id: user?.user_id },
+    });
+
+    // Send verification code via email
+    await sendEmail(
+      email,
+      "Password Reset Verification Code",
+      `Your verification code is: ${code}`
+    );
+
+    logger.info("[FORGOT Password]: " + email, code);
+
+    // Return success message
+    return {
+      status: 200,
+      message: "Verification code sent to email",
+      data: null,
+    };
+  }
+
+  // CHECK VERIFICATION CODE
+  static async checkVerificationCode(email: EmailProps, code: string) {
+    // Check if email and code exist
+    if (!email || !code) {
+      throw new ResponseError("Missing email or code", 400);
+    }
+
+    // Check if user exists
+    const user = await prisma.local_users.findUnique({
+      where: { email: email },
+    });
+    if (!user) {
+      throw new ResponseError("User not found", 404);
+    }
+
+    // Verify the code
+    const verify = await EmailVerifies.findUnique({
+      where: { user_id: user?.user_id },
+    });
+
+    if (!verify || verify.code !== code) {
+      throw new ResponseError("Invalid verification code", 400);
+    }
+
+    // Generate verification code
+    const newCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Save verification code
+    await EmailVerifies.update({
+      where: { email_verify_id: verify.email_verify_id },
+      data: { code: newCode },
+    });
+
+    return {
+      status: 200,
+      message: "Code verified",
+      data: {
+        code: newCode,
+        email: user.email,
+      },
+    };
+  }
+
+  // RESET PASSWORD
+  static async resetPassword(data: ResetPasswordProps) {
+    // Check if data exist
+    if (!data) {
+      throw new ResponseError("Missing data", 400);
+    }
+
+    // Validate data
+    const error = getErrorMessages(resetPasswordSchema, data);
+    if (error != null) {
+      throw new ResponseError(error, 400);
+    }
+
+    // Check if user exists
+    const local_user = await prisma.local_users.findUnique({
+      where: { email: data.email },
+      include: {
+        user: true,
+      },
+    });
+    if (!local_user) {
+      throw new ResponseError("User not found", 404);
+    }
+
+    // Verify the code
+    const verify = await EmailVerifies.findUnique({
+      where: { user_id: local_user?.user.user_id },
+    });
+
+    console.log(verify?.code, "BALALLAA", data.code);
+
+    if (!verify || verify.code !== data.code) {
+      throw new ResponseError("Invalid verification code", 400);
+    }
+
+    // Hash new password
+    const hashedPassword = await bcrypt.hash(data.new_password, 10);
+
+    // Update user password
+    await prisma.local_users.update({
+      where: { local_user_id: local_user?.local_user_id },
+      data: { password: hashedPassword },
+    });
+
+    // Delete the verification code from the database
+    await EmailVerifies.delete({
+      where: { user_id: local_user?.user_id },
+    });
+
+    logger.info(
+      "[RESET Password]: " + data.email,
+      data.code,
+      data.new_password
+    );
+
+    return {
+      status: 200,
+      message: "Password reset successfully",
+      data: null,
+    };
+  }
+
+  // VERIFY EMAIL
+  static async verifyEmail(data: VerifyEmailProps) {
+    // Check if data exist
+    if (!data) {
+      throw new ResponseError("Missing data", 400);
+    }
+
+    // Validate data
+    const error = getErrorMessages(verifyEmailSchema, data);
+    if (error != null) {
+      throw new ResponseError(error, 400);
+    }
+
+    // Find user by email
+    const local_user = await prisma.local_users.findUnique({
+      where: { email: data.email },
+      include: { user: true },
+    });
+
+    // Check if user exists
+    if (!local_user) {
+      throw new ResponseError("User not found", 404);
+    }
+
+    // Verify the code
+    const verify = await EmailVerifies.findUnique({
+      where: { user_id: local_user.user_id },
+    });
+    if (!verify || verify.code !== data.code) {
+      throw new ResponseError("Invalid verification code", 400);
+    }
+
+    // Mark the email as verified
+    await prisma.local_users.update({
+      where: { local_user_id: local_user.local_user_id },
+      data: {
+        email_verified: true,
+      },
+    });
+
+    // Delete the verification code from the database
+    await EmailVerifies.delete({
+      where: { user_id: local_user.user_id },
+    });
+
+    logger.info("[VERIFY Email]: " + data.email, data.code);
+
+    // Generate JWT
+    const token = jwt.sign(
+      {
+        user_id: local_user.user_id,
+        role: local_user.user.role,
+        email: local_user.email,
+        is_local: false,
+      },
+      SECRET_KEY,
+      {
+        expiresIn: "1h",
+      }
+    );
+
+    logger.info("[LOGIN User] : ", token);
+    const { password, ...userWithoutPassword } = local_user;
+
+    return {
+      status: 200,
+      message: "Email verified successfully",
+      data: {
+        token: token,
+        user: { ...userWithoutPassword, email_verified: true },
+      },
+    };
+  }
+
+  // DOWNLOAD
+  static async download(template: boolean = false) {
+    const workbook = new Workbook();
+    const columns = [
+      { header: "No", key: "no", width: 5 },
+      { header: "User ID", key: "user_id", width: 25 },
+      { header: "Username", key: "username", width: 25 },
+      { header: "Email", key: "email", width: 30 },
+      { header: "First Name", key: "first_name", width: 25 },
+      { header: "Last Name", key: "last_name", width: 25 },
+      { header: "Birth Date", key: "birth_date", width: 20 },
+      { header: "Gender", key: "gender", width: 15 },
+      { header: "Image", key: "image", width: 30 },
+      { header: "Banner", key: "banner", width: 30 },
+      { header: "Phone", key: "phone", width: 20 },
+      { header: "Address", key: "address", width: 40 },
+      { header: "Country", key: "country", width: 20 },
+      { header: "Province", key: "province", width: 20 },
+      { header: "City", key: "city", width: 20 },
+      { header: "Zip", key: "zip", width: 10 },
+    ];
+    const columnsTemplate = [
+      { header: "No", key: "no", width: 5 },
+      { header: "Username", key: "username", width: 25 },
+      { header: "Email", key: "email", width: 30 },
+      { header: "First Name", key: "first_name", width: 25 },
+      { header: "Last Name", key: "last_name", width: 25 },
+      { header: "Birth Date", key: "birth_date", width: 20 },
+      { header: "Gender", key: "gender", width: 15 },
+      { header: "Image", key: "image", width: 30 },
+      { header: "Banner", key: "banner", width: 30 },
+      { header: "Phone", key: "phone", width: 20 },
+      { header: "Address", key: "address", width: 40 },
+      { header: "Country", key: "country", width: 20 },
+      { header: "Province", key: "province", width: 20 },
+      { header: "City", key: "city", width: 20 },
+      { header: "Zip", key: "zip", width: 10 },
+    ];
+    return handleDownload({
+      name: this.NAME,
+      template,
+      columns,
+      columnsTemplate,
+      workbook,
+      handleAddRow: (worksheet: XLSX.WorkSheet, item: any, index: number) => {
+        worksheet.addRow({
+          no: index + 1,
+          user_id: item?.user_id?.trim(),
+          username: item?.username?.trim(),
+          email: !!item?.email ? item?.email?.trim() : "-",
+          first_name: item?.first_name?.trim(),
+          last_name: item?.last_name?.trim(),
+          birth_date: item?.birth_date,
+          gender: item?.gender?.trim(),
+          image: item?.image?.url?.trim(),
+          banner: item?.banner?.url?.trim(),
+          phone: item?.phone?.trim(),
+          address: item?.address?.trim(),
+          country: item?.country?.trim(),
+          province: item?.province?.trim(),
+          city: item?.city?.trim(),
+          zip: item?.zip?.trim(),
+        });
+      },
+
+      getAllService: async () => {
+        const result = await this.getAll({ offset: null, limit: "1000000000" });
+        if (result && result.data) {
+          return result.data.users;
+        }
+        throw new ResponseError("Failed to fetch users", 500);
+      },
+    });
+  }
+}
+
+export default UserService;

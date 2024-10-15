@@ -1,0 +1,77 @@
+// v1/middleware/auth.middleware.ts
+
+// ========== Import ==========
+import jwt from "jsonwebtoken";
+import { NextFunction, Request, Response, RequestHandler } from "express";
+import prisma from "../utils/prisma.utils";
+import { AuthRequestProps } from "../types/general.types";
+
+// ========= Init ==========
+const SECRET_KEY = process.env.SECRET_KEY ?? "YSF"; // Use nullish coalescing for safety
+const User = prisma.users;
+
+// ========= Middleware ==========
+
+const authMiddleware = (roles: string[] = []): RequestHandler => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const authReq = req as AuthRequestProps;
+    const handleError = (status: number, message: string, error?: any) => {
+      res
+        .status(status)
+        .json({ status, message, data: null, error: error?.message ?? null });
+    };
+
+    try {
+      const authHeader = req.headers.authorization;
+      const bearer = "Bearer ";
+
+      if (!authHeader || !authHeader.startsWith(bearer)) {
+        return handleError(401, "Access denied. No credentials sent!");
+      }
+
+      const token = authHeader.slice(bearer.length).trim();
+
+      // Verify the token
+      let decoded: jwt.JwtPayload | string;
+      try {
+        decoded = jwt.verify(token, SECRET_KEY) as jwt.JwtPayload;
+      } catch (error) {
+        return handleError(401, "Access denied. Invalid token!", error);
+      }
+
+      // Ensure the token contains a user_id
+      if (!decoded || typeof decoded !== "object" || !decoded.user_id) {
+        return handleError(401, "Access denied. Invalid token structure!");
+      }
+
+      // Find the user in the database
+      const user = await User.findUnique({
+        where: { user_id: decoded.user_id },
+      });
+
+      if (!user) {
+        return handleError(404, "Access denied. User not found!");
+      }
+
+      // Check user role permissions
+      if (roles.length && !roles.includes(user.role)) {
+        return handleError(403, "Access denied. Insufficient permissions!");
+      }
+
+      // Attach the user info to the request
+      authReq.user = {
+        user_id: user.user_id,
+        username: user.username,
+        role: user.role,
+        email: user.email,
+      };
+
+      next(); // Proceed to the next middleware or route handler
+    } catch (error) {
+      console.log(error);
+      handleError(500, "Internal server error", error);
+    }
+  };
+};
+
+export default authMiddleware;

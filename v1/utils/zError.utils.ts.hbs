@@ -1,0 +1,17 @@
+import { ZodSchema } from "zod";
+
+export const getErrorMessages = (schema: ZodSchema, data: unknown) => {
+  const parsed = schema.safeParse(data);
+  if (parsed.success) {
+    return null; // No errors
+  }
+
+  // Map the issues to include path and message
+  const errorMessages = parsed.error.issues.map((issue) => {
+    const path = issue.path.join("."); // This will give you the field name
+    return `${path}: ${issue.message}`;
+  });
+
+  // Join error messages into a single string if needed
+  return errorMessages.join(", ");
+};

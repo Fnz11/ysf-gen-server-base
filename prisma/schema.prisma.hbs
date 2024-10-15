@@ -1,0 +1,116 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model users {
+  user_id         String            @id @default(uuid())
+  username        String            @unique @db.VarChar(50)
+  role            Role
+  created_at      DateTime          @default(now())
+  email           String            @db.VarChar(50)
+  email_verify    email_verifies?
+  user_detail     user_details?
+  user_preference user_preferences?
+  local_user      local_users?
+  oauth_user      oauth_users?
+
+  @@index([username], map: "username")
+  @@index([email], map: "email")
+}
+
+model local_users {
+  local_user_id       String   @id @default(uuid())
+  email               String   @unique
+  password            String
+  email_verified      Boolean  @default(false)
+  password_updated_at DateTime @default(now())
+  user                users    @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  user_id             String   @unique
+
+  @@index([email])
+}
+
+model oauth_users {
+  oauth_user_id String        @id @default(uuid())
+  provider      OAuthProvider
+  provider_id   String        @unique
+  email         String?       @unique 
+  refresh_token String?
+  user          users         @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  user_id       String        @unique
+}
+
+model user_details {
+  user_detail_id String     @id @default(uuid())
+  first_name     String
+  last_name      String?
+  phone          String?
+  birth_date     DateTime?
+  gender         Gender?    @default(NOT_SPECIFIED)
+  image          images?    @relation("UserImage")
+  banner         images?    @relation("UserBanner")
+  address        addresses?
+  user           users      @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  user_id        String     @unique
+}
+
+model user_preferences {
+  user_preference_id String  @id @default(uuid())
+  email_updates      Boolean @default(false)
+  user               users   @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+  user_id            String  @unique
+}
+
+model addresses {
+  address_id     String @id @default(uuid())
+  address        String
+  city           String
+  province       String
+  zip            String
+  country        String
+  user_detail_id String @unique
+
+  user_detail user_details? @relation(fields: [user_detail_id], references: [user_detail_id], onDelete: Cascade)
+}
+
+model email_verifies {
+  email_verify_id Int      @id @default(autoincrement())
+  code              String?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+  user_id           String   @unique
+
+  user users? @relation(fields: [user_id], references: [user_id], onDelete: Cascade)
+}
+
+model images {
+  image_id       String        @id @default(uuid())
+  url            String
+  public_id      String?
+  user_image     user_details? @relation("UserImage", fields: [user_image_id], references: [user_detail_id], onDelete: Cascade)
+  user_image_id  String?       @unique
+  user_banner    user_details? @relation("UserBanner", fields: [user_banner_id], references: [user_detail_id], onDelete: Cascade)
+  user_banner_id String?       @unique
+}
+
+enum Role {
+  USER
+  SUPER_ADMIN
+  ADMIN
+}
+
+enum Gender {
+  NOT_SPECIFIED
+  MALE
+  FEMALE
+}
+
+enum OAuthProvider {
+  GOOGLE
+}

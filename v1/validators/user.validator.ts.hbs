@@ -1,0 +1,167 @@
+// v1/validators/user.validator.ts
+import { Role } from "@prisma/client";
+import { z } from "zod";
+
+// ========== Schema ==========
+
+const ROLE = ["USER", "ADMIN", "SUPER_ADMIN"] as const;
+
+// Login With Google Schema Validator
+export const loginWithGoogleSchema = z.object({
+  id_token: z.string().min(1, { message: "Id token is required" }),
+  access_token: z.string().min(1, { message: "Access token is required" }),
+});
+
+// Sign Up User Schema Validator
+export const signUpSchema = z.object({
+  email: z
+    .string()
+    .email({ message: "Invalid email address" })
+    .min(1, { message: "Email is required" })
+    .min(3, { message: "Email must be at least 3 characters long" }),
+  password: z
+    .string()
+    .min(8, { message: "Password must be at least 8 characters long" }),
+  first_name: z
+    .string()
+    .min(1, { message: "First name is required" })
+    .min(3, { message: "First name must be at least 3 characters long" }),
+  last_name: z
+    .string()
+    .min(1, { message: "Last name is required" })
+    .min(3, { message: "Last name must be at least 3 characters long" }),
+  phone: z.string().min(1, { message: "Number is required" }),
+  role: z.enum(["USER"]),
+});
+
+// Create User Schema Validator
+export const createUserSchema = z.object({
+  username: z
+    .string()
+    .min(1, { message: "Username is required" })
+    .min(3, { message: "Username must be at least 3 characters long" })
+    .optional(),
+  email: z
+    .string()
+    .min(1, { message: "Email is required" })
+    .email({ message: "Invalid email address" })
+    .min(3, { message: "Email must be at least 3 characters long" }),
+  password: z
+    .string()
+    .min(1, { message: "Password is required" })
+    .min(8, { message: "Password must be at least 8 characters long" }),
+  role: z.enum(ROLE),
+  first_name: z.string().min(1, { message: "First name is required" }),
+  last_name: z.string().optional(),
+  phone: z.string().optional(),
+});
+
+// Update User Schema Validator
+export const updateUserSchema = z.object({
+  username: z
+    .string()
+    .min(3, { message: "Username must be at least 3 characters long" })
+    .optional(),
+  first_name: z
+    .string()
+    .min(3, { message: "First name must be at least 3 characters long" })
+    .optional(),
+  last_name: z
+    .string()
+    .min(3, { message: "Last name must be at least 3 characters long" })
+    .optional(),
+  password: z
+    .string()
+    .min(1, { message: "Password is required" })
+    .min(8, { message: "Password must be at least 8 characters long" })
+    .optional(),
+  birth_date: z.string().optional().nullable(),
+  gender: z.enum(["MALE", "FEMALE", "NOT_SPECIFIED"]).optional().nullable(),
+  image: z.string().optional().nullable(),
+  banner: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  country: z.string().optional().nullable(),
+  province: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  zip: z.string().optional().nullable(),
+});
+
+// Login User Schema Validator
+export const loginSchema = z.object({
+  email: z
+    .string()
+    .min(3, { message: "Email must be at least 3 characters long" })
+    .max(30, { message: "Email must be at most 30 characters long" }),
+  password: z
+    .string()
+    .min(8, { message: "Password must be at least 8 characters long" }),
+});
+
+// Email Validator
+export const usernameSchema = z
+  .string()
+  .min(1, { message: "Username is required" })
+  .min(3, { message: "Username must be at least 3 characters long" });
+
+// Reset Password Schema Validator
+export const resetPasswordSchema = z.object({
+  email: z
+    .string()
+    .email({ message: "Invalid email address" })
+    .min(1, { message: "Email is required" })
+    .min(3, { message: "Email must be at least 3 characters long" }),
+  code: z
+    .string()
+    .min(6, { message: "Code must be at least 6 characters long" })
+    .max(6, { message: "Code must be at most 6 characters long" }),
+  new_password: z
+    .string()
+    .min(8, { message: "Password must be at least 8 characters long" }),
+});
+
+// Verify Email Schema Validator
+export const verifyEmailSchema = z.object({
+  email: z
+    .string()
+    .email({ message: "Invalid email address" })
+    .min(1, { message: "Email is required" })
+    .min(3, { message: "Email must be at least 3 characters long" }),
+  code: z
+    .string()
+    .min(1, { message: "Code is required" })
+    .min(6, { message: "Code must be 6 character" })
+    .max(6, {
+      message: "Code must be 6 character",
+    }),
+});
+
+// Update Password Schema Validator
+export const updatePasswordSchema = z.object({
+  old_password: z
+    .string()
+    .min(8, { message: "Password must be at least 8 characters long" }),
+  new_password: z
+    .string()
+    .min(8, { message: "Password must be at least 8 characters long" }),
+});
+
+export const emailSchema = z
+  .string()
+  .email({ message: "Invalid email address" })
+  .min(1, { message: "Email is required" })
+  .min(3, { message: "Email must be at least 3 characters long" });
+
+// ========== TYPES ==========
+export type SignUpProps = z.infer<typeof signUpSchema>;
+export type LoginWithGoogleProps = z.infer<typeof loginWithGoogleSchema>;
+export type CreateUserProps = z.infer<typeof createUserSchema>;
+export type UpdateUserProps = z.infer<typeof updateUserSchema>;
+export type LoginProps = z.infer<typeof loginSchema>;
+export type UsernameProps = z.infer<typeof usernameSchema>;
+export type EmailProps = z.infer<typeof emailSchema>;
+export type ResetPasswordProps = z.infer<typeof resetPasswordSchema>;
+export type VerifyEmailProps = z.infer<typeof verifyEmailSchema>;
+export type UpdatePasswordProps = z.infer<typeof updatePasswordSchema>;
+
+// ========== Exports ==========

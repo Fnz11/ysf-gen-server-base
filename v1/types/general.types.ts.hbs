@@ -1,0 +1,36 @@
+// v1/interfaces/auth.interface.ts
+
+// ========== Import ==========
+import { Request, RequestHandler } from "express";
+import { users, Role } from "@prisma/client";
+
+export type ResponseProps = {
+  status: number;
+  message: string | string[] | any;
+  data: any;
+  pages?: {
+    page: number;
+    totalItem: number;
+    totalPage: number;
+  };
+};
+
+export interface AuthRequestProps extends Request {
+  user: {
+    user_id: string;
+    username: string;
+    role: Role;
+    email: string;
+  };
+}
+
+export type GoogleUserInfoProps = {
+  id: string;
+  email: string;
+  verified_email: boolean;
+  name: string;
+  given_name: string;
+  family_name: string;
+  picture: string;
+  locale: string;
+};

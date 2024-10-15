@@ -1,0 +1,42 @@
+// v1/utils/ememailer.utils.ts
+
+// =========== Imports ==========
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+dotenv.config();
+
+// =========== Inits ==========
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// =========== Utils ==========
+export const sendEmail = async (
+  email: string,
+  subject: string,
+  message: string
+): Promise<void> => {
+  // Create email options
+  const options = {
+    from: process.env.EMAIL,
+    to: email,
+    subject: subject,
+    text: message,
+  };
+
+  // Send email
+  try {
+    await transporter.sendMail(options);
+    console.log("Email sent successfully");
+  } catch (error) {
+    console.error("Error sending email: ", error);
+    throw new Error("Failed to send email");
+  }
+};

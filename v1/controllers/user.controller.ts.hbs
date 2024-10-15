@@ -1,0 +1,333 @@
+// v1/controllers/user.controller.ts
+
+// ========== Import ==========
+import { NextFunction, Request, Response } from "express";
+import UserService from "../services/user.service";
+import { AuthRequestProps, ResponseProps } from "../types/general.types";
+import logger from "../utils/logger.utils";
+import {
+  CreateUserProps,
+  LoginProps,
+  UpdatePasswordProps,
+} from "../validators/user.validator";
+
+// ========== Controllers ==========
+class UserController {
+  // GET ALL
+  async getAll(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        offset,
+        limit,
+        first_name,
+        last_name,
+        user_id,
+        username,
+        email,
+        role,
+        phone,
+        birth_date,
+        gender,
+        email_verified,
+        provider_id,
+      } = req.query;
+      logger.info(
+        "[GET All User Query Params]: " +
+          [
+            offset,
+            limit,
+            first_name,
+            last_name,
+            user_id,
+            username,
+            email,
+            role,
+            phone,
+            birth_date,
+            gender,
+            email_verified,
+            provider_id,
+          ].join(", ")
+      );
+      const result = (await UserService.getAll({
+        offset: offset ? (offset as string) : null,
+        limit: limit ? (limit as string) : null,
+        user_id: user_id ? (user_id as string) : null,
+        first_name: first_name ? (first_name as string) : null,
+        last_name: last_name ? (last_name as string) : null,
+        username: username ? (username as string) : null,
+        email: email ? (email as string) : null,
+        role: role ? (role as string) : null,
+        phone: phone ? (phone as string) : null,
+        birth_date: birth_date ? (birth_date as string) : null,
+        gender: gender ? (gender as string) : null,
+        email_verified: email_verified ? (email_verified as string) : null,
+        provider_id: provider_id ? (provider_id as string) : null,
+      })) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // GET BY ID
+  async getById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const result = (await UserService.getById(id)) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // CHECK SESSION
+  async checkSession(req: Request, res: Response, next: NextFunction) {
+    try {
+      // Cast req as AuthRequestProps to access the user
+      const authReq = req as AuthRequestProps;
+
+      if (!authReq.user)
+        return res
+          .status(401)
+          .json({ status: 401, message: "Unauthorized", data: null });
+      res
+        .status(200)
+        .json({ status: 200, message: "Authorized", data: authReq.user });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // CREATE
+  async create(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = req.body as CreateUserProps;
+      const result = (await UserService.create(data)) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // CREATE BATCH
+  async createBatch(req: Request, res: Response, next: NextFunction) {
+    if (!req.file) {
+      return res.status(400).json({
+        status: 400,
+        data: null,
+        message: "No file uploaded",
+      });
+    }
+    try {
+      const result = (await UserService.createBatch(req.file)) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // UPDATE
+  async update(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const data = req.body as CreateUserProps;
+      const result = (await UserService.update(id, data)) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // DOWNLOAD
+  async download(req: Request, res: Response, next: NextFunction) {
+    const { template } = req.params;
+    try {
+      const authReq = req as AuthRequestProps;
+      console.log("BO:POOOO", authReq.user);
+
+      const result = await UserService.download(
+        template == "template" ? true : false
+      );
+      if (result.success) {
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+        res.setHeader(
+          "Content-Disposition",
+          "attachment; filename=user-data.xlsx"
+        );
+        await result.workbook.xlsx.write(res);
+        res.status(200).end();
+      } else {
+        next(result);
+      }
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // FORGOT PASSWORD
+  async forgotPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email } = req.body;
+      const result = await UserService.forgotPassword(email);
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // CHECK VERIFICATION CODE
+  async checkVerificationCode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email, code } = req.body;
+      const result = await UserService.checkVerificationCode(email, code);
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // VERIFY EMAIL
+  async verifyEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email, code } = req.body;
+      const userData = {
+        email,
+        code,
+      };
+      const result = (await UserService.verifyEmail(userData)) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // RESET PASSWORD
+  async resetPassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email, code, new_password } = req.body;
+      const result = await UserService.resetPassword({
+        email,
+        code,
+        new_password,
+      });
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // DELETE
+  async delete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const result = (await UserService.delete(id)) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // DELETE BATCH
+  async deleteBatch(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { ids } = req.body;
+      const result = (await UserService.deleteBatch(ids)) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // LOGIN WITH GOOGLE
+  async signInWithGoogle(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id_token, access_token } = req.body;
+      const result = (await UserService.signInWithGoogle({
+        id_token,
+        access_token,
+      })) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // SIGN UP
+  async signUp(req: Request, res: Response, next: NextFunction) {
+    try {
+      const {
+        // User
+        username,
+        email,
+        password,
+        role,
+        first_name,
+        last_name,
+        phone,
+        image,
+        address,
+        city,
+        zip,
+        detail,
+      } = req.body;
+      const userData = {
+        username,
+        email,
+        password,
+        role: role || "USER",
+        first_name,
+        last_name,
+        phone,
+        image,
+        address,
+        city,
+        zip,
+        detail,
+      };
+      const result = (await UserService.signUp(
+        userData as any
+      )) as ResponseProps;
+
+      // Send Response
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // LOGIN
+  async signIn(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email, password } = req.body as LoginProps;
+      const userData = {
+        email,
+        password,
+      };
+      const result = (await UserService.signIn(userData)) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // UPDATE PASSWORD
+  async updatePassword(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email } = req.params;
+      const { old_password, new_password } = req.body as UpdatePasswordProps;
+      const result = (await UserService.updatePassword(email as string, {
+        old_password,
+        new_password,
+      })) as ResponseProps;
+      res.status(result.status).json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+export default new UserController();

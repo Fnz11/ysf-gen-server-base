@@ -1,0 +1,24 @@
+import { Prisma } from "@prisma/client";
+import ResponseError from "../error/response.error";
+import { ZodError } from "zod";
+
+export const getCustomErrorMsg = (err: unknown) => {
+  let customMessage = "";
+  if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    // Handle known Prisma errors by their codes
+    if (err.code === "P2002") {
+      customMessage = `Sudah terdapat ${err.meta?.target} pada database`;
+    } else if (err.code === "P2025") {
+      customMessage = `Record ${err.meta?.target} tidak ditemukan`;
+    } else {
+      customMessage = err.message;
+    }
+  } else if (err instanceof ResponseError) {
+    customMessage = err.message;
+  } else if (err instanceof ZodError) {
+    customMessage = (err as any)?.message;
+  } else if (err) {
+    customMessage = "Ada kesalahan server, silahkan hubungi admin";
+  }
+  return customMessage;
+};

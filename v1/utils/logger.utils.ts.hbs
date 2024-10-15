@@ -1,0 +1,25 @@
+import winston from "winston";
+import DailyRotateFile from "winston-daily-rotate-file";
+
+const logger = winston.createLogger({
+  level: "info",
+  format: winston.format.combine(
+    winston.format.colorize(),
+    winston.format.simple(),
+    winston.format.ms(),
+    winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" })
+  ),
+  transports: [
+    new winston.transports.Console(),
+    // new DailyRotateFile({
+    //   filename: "app-%DATE%.log",
+    //   level: "error",
+    //   handleExceptions: true,
+    //   zippedArchive: true,
+    //   maxSize: "1m",
+    //   maxFiles: "14d",
+    // }),
+  ],
+});
+
+export default logger;

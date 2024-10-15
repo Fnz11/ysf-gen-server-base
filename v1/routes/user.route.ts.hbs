@@ -1,0 +1,72 @@
+// v1/routes/user.route.ts
+
+// ========== Import ==========
+import { Router } from "express";
+import UserController from "../controllers/user.controller";
+import { upload } from "../utils/multer.utils";
+import authMiddleware from "../middleware/auth.middleware";
+import { Role } from "@prisma/client";
+import { AuthRequestProps } from "../types/general.types";
+
+// ========== Router ==========
+const router = Router();
+
+// ========== Routes ==========
+
+// GET
+router.get("/", authMiddleware(Object.values(Role)), UserController.getAll);
+router.get(
+  "/check-session",
+  authMiddleware(Object.values(Role)),
+  UserController.checkSession
+);
+router.get("/:id", authMiddleware(Object.values(Role)), UserController.getById);
+router.get(
+  "/download/:template",
+  authMiddleware(Object.values(Role)),
+  UserController.download
+);
+
+// POST
+router.post("/signin", UserController.signIn);
+router.post("/signin/google", UserController.signInWithGoogle);
+router.post("/signup", UserController.signUp);
+router.post("/verify-email", UserController.verifyEmail);
+router.post("/forgot-password", UserController.forgotPassword);
+router.post("/reset-password", UserController.resetPassword);
+router.post("/check-code", UserController.checkVerificationCode);
+router.post(
+  "/delete/batch",
+  authMiddleware(Object.values(Role)),
+  UserController.deleteBatch
+);
+
+router.post("/", authMiddleware(Object.values(Role)), UserController.create);
+router.post(
+  "/batch",
+  authMiddleware(Object.values(Role)),
+  upload.single("file"),
+  UserController.createBatch
+);
+
+// PATCH
+router.patch(
+  "/:id",
+  authMiddleware(Object.values(Role)),
+  UserController.update
+);
+router.patch(
+  "/update-password/:id",
+  authMiddleware(Object.values(Role)),
+  UserController.updatePassword
+);
+
+// DELETE
+router.delete(
+  "/:id",
+  authMiddleware(Object.values(Role)),
+  UserController.delete
+);
+
+// ========== Exports ==========
+export default router;

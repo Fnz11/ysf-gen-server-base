@@ -1,0 +1,320 @@
+import { Workbook } from "exceljs";
+import ResponseError from "../error/response.error";
+import * as XLSX from "xlsx";
+import * as fs from "fs";
+import { getCustomErrorMsg } from "./getCustomErrorMsg";
+import { getErrorMessages } from "./zError.utils";
+import { z } from "zod";
+import prisma from "./prisma.utils";
+
+export const handleGetById = async ({
+  id,
+  findService,
+  name,
+}: {
+  id: string | number;
+  findService: (id: string | number) => Promise<any>;
+  name: string;
+}) => {
+  const nameCap = name.charAt(0).toUpperCase() + name.slice(1);
+  if (!id) {
+    throw new ResponseError("Missing id", 400);
+  }
+
+  const isExist = await findService(id);
+
+  if (!isExist) {
+    throw new ResponseError(nameCap + "  not found", 404);
+  }
+
+  return {
+    status: 200,
+    message: "Success get " + name,
+    data: isExist,
+  };
+};
+
+export const handleDeleteBatch = async ({
+  ids,
+  deleteService,
+  name,
+}: {
+  ids: string[];
+  deleteService: (
+    id: string
+  ) => Promise<{ status: number; message: string; data: any }>;
+  name: string;
+}) => {
+  if (ids.length == 0) {
+    throw new ResponseError("Tidak ada ID yang diberikan", 400);
+  }
+
+  let res = [];
+  for (let i = 0; i < ids.length; i++) {
+    if (!ids[i]) {
+      res.push({
+        id: ids[i],
+        success: false,
+        data: ids[i],
+        message: "Tidak ada ID yang diberikan",
+      });
+    } else {
+      await deleteService(ids[i])
+        .then((result) => {
+          res.push({
+            id: ids[i],
+            success: true,
+            message: result.message,
+            data: result.data,
+          });
+        })
+        .catch(async (err) => {
+          console.log(err);
+          res.push({
+            id: ids[i],
+            success: false,
+            data: ids[i],
+            message:
+              err?.message && err.message.length < 100
+                ? err?.message
+                : "Internal Server Error",
+          });
+        });
+    }
+  }
+
+  return {
+    status: 200,
+    message:
+      res.length == ids.length
+        ? "Failed to delete all " + name
+        : res.length > 0
+          ? "Failed to delete some " + name
+          : "Success delete " + name,
+    data: res,
+  };
+};
+
+export const handleDelete = async ({
+  id,
+  name,
+  findService,
+  deleteService,
+  bukuCondition = false,
+}: {
+  id: string | number;
+  name: string;
+  findService: (id: string | number) => Promise<any>;
+  deleteService: (id: string | number) => Promise<any>;
+  bukuCondition?: boolean;
+}) => {
+  const nameCap = name.charAt(0).toUpperCase() + name.slice(1);
+
+  // Check if id exist
+  if (!id) {
+    throw new ResponseError("Tidak ada id yang diberikan", 400);
+  }
+
+  // Check if Penulis exist
+  const isExist = await findService(id);
+  if (!isExist) {
+    throw new ResponseError(nameCap + " tidak ditemukan", 404);
+  }
+
+  // Check if Penulis has buku
+  if (bukuCondition && isExist.buku && isExist.buku.length > 0) {
+    throw new ResponseError(
+      nameCap + ` tidak bisa dihapus karena sudah ada buku yang terkait`,
+      400
+    );
+  }
+
+  // Delete Penulis
+  const result = await deleteService(id);
+
+  return {
+    status: 200,
+    message: "Success delete " + name,
+    data: result,
+  };
+};
+
+export const handleMutate = async ({
+  name,
+  id,
+  data,
+  findService,
+  mutateService,
+  schema,
+  type = "create",
+}: {
+  name: string;
+  id?: string | number;
+  data: any;
+  findService?: (id: string | number) => Promise<any>;
+  mutateService: (params: { id?: string | number; data: any }) => Promise<any>;
+  schema: z.ZodSchema<any>;
+  type?: "create" | "update";
+}) => {
+  const nameCap = name.charAt(0).toUpperCase() + name.slice(1);
+  if (!id && type == "update") {
+    throw new ResponseError("Missing id", 400);
+  }
+
+  if (!data) {
+    throw new ResponseError("Missing data", 400);
+  }
+
+  if (!!id && type == "update" && !!findService) {
+    const isExist = await findService(id);
+    if (!isExist) {
+      throw new ResponseError(nameCap + "  not found", 404);
+    }
+  }
+
+  const error = getErrorMessages(schema, data);
+  if (error != null) {
+    throw new ResponseError(error, 400);
+  }
+
+  let result: any = {};
+  if (!!id && type == "update") {
+    result = await mutateService({ id, data: data as any });
+  } else {
+    result = await mutateService({ data: data as any });
+  }
+
+  return {
+    status: 200,
+    message: "Success " + type + " " + name,
+    data: result,
+  };
+};
+
+export const handleDownload = async ({
+  name,
+  template,
+  columns,
+  columnsTemplate,
+  handleAddRow,
+  getAllService,
+  workbook,
+}: {
+  name: string;
+  template: boolean;
+  columnsTemplate?: { header: string; key: string; width?: number }[];
+  columns: { header: string; key: string; width?: number }[];
+  handleAddRow: (worksheet: XLSX.WorkSheet, data: any, index: number) => void;
+  getAllService: () => Promise<any>;
+  workbook: Workbook;
+}) => {
+  const nameCap = name.charAt(0).toUpperCase() + name.slice(1);
+  const worksheet = workbook.addWorksheet(nameCap + "  Data");
+
+  // Set up the header with custom styles
+  if (template && !!columnsTemplate) {
+    worksheet.columns = columnsTemplate;
+  } else {
+    worksheet.columns = columns;
+  }
+
+  // Add header style
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.getRow(1).alignment = { horizontal: "center" };
+
+  if (template) {
+    return {
+      success: true,
+      workbook,
+    };
+  }
+
+  // Get data
+  const data = await getAllService();
+  console.log("PAPAPAPA", data);
+
+  // Add data to the worksheet
+  data.forEach((item: any, index: number) => {
+    handleAddRow(worksheet, item, index);
+  });
+
+  // Apply styles to columns or rows if needed
+  worksheet.eachRow((row, rowNumber) => {
+    row.eachCell((cell) => {
+      cell.border = {
+        top: { style: "thin" },
+        left: { style: "thin" },
+        bottom: { style: "thin" },
+        right: { style: "thin" },
+      };
+    });
+    if (rowNumber > 1) {
+      row.alignment = { vertical: "middle", horizontal: "center" };
+    }
+  });
+
+  return {
+    success: true,
+    workbook,
+  };
+};
+
+export const handleCreateBatch = async ({
+  file,
+  header,
+  handleAddData,
+  createService,
+}: {
+  file: Express.Multer.File;
+  header: string[];
+  handleAddData: (item: any, index: number) => void;
+  createService: (
+    data: any
+  ) => Promise<{ status: number; message: string; data: any }>;
+}) => {
+  if (!file || !file.path) {
+    throw new Error("File path is missing");
+  }
+
+  const fileBuffer = fs.readFileSync(file.path);
+  const workbook = XLSX.read(fileBuffer, { type: "buffer" });
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+
+  const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+    header,
+  });
+
+  const results = [];
+
+  for (let index = 1; index < jsonData.length; index++) {
+    const item = jsonData[index] as any;
+
+    const data = handleAddData(item, index);
+    try {
+      // Create the record
+      await createService(data as any);
+
+      results.push({
+        id: index,
+        success: true,
+        message: "Success",
+      });
+    } catch (err) {
+      console.log(err);
+      let customMessage = getCustomErrorMsg(err);
+      results.push({
+        id: index,
+        data: data,
+        success: false,
+        message: customMessage,
+      });
+    }
+  }
+
+  return {
+    status: 200,
+    message: "File processed successfully!",
+    data: results,
+  };
+};
