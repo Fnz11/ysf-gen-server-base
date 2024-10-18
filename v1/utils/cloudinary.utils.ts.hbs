@@ -11,7 +11,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const uploadImage = async ({
+export const uploadImage = async ({
   image,
   publicId,
   folder,
@@ -47,4 +47,15 @@ const uploadImage = async ({
   }
 };
 
-export { uploadImage };
+export const deleteImage = async (publicIds: string[]) => {
+  try {
+    console.log(publicIds);
+    publicIds.forEach(async (publicId) => {
+      const res = await cloudinary.uploader.destroy(publicId);
+      logger.info(`[Success deleting image]: ${JSON.stringify(res)}`);
+    });
+    return true;
+  } catch (error) {
+    logger.error(`[Error deleting image]: ${JSON.stringify(error)}`);
+  }
+};
