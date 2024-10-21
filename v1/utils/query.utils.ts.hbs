@@ -40,15 +40,34 @@ export function buildQueryConditions(conditions: QueryOptions): QueryValue {
 
   const buildFieldCondition = (condition: Condition) => {
     let fieldCondition: any = {};
+    let value = condition.value;
     if (typeof condition.isNot !== undefined) {
       fieldCondition.isNot = condition.isNot;
     } else if (condition.type == "boolean") {
       fieldCondition = !!condition.value;
     } else {
-      if (condition.contains) fieldCondition.contains = condition.value;
-      if (condition.lte) fieldCondition.lte = condition.value;
-      if (condition.gte) fieldCondition.gte = condition.value;
-      if (condition.e) fieldCondition.equals = condition.value;
+      if (condition.type === "number") {
+        const parsedValue = parseInt(condition.value, 10);
+        if (!isNaN(parsedValue)) {
+          value = parsedValue;
+        } else {
+          value = {};
+        }
+      } else if (condition.type === "Date") {
+        const parsedValue = new Date(condition.value);
+        if (parsedValue.toString() !== "Invalid Date") {
+          value = parsedValue;
+        } else {
+          value = {};
+        }
+      } else if (condition.type === "string") {
+        const parsedValue = value?.toString()?.trim();
+        value = parsedValue;
+      }
+      if (condition.contains) fieldCondition.contains = value;
+      if (condition.lte) fieldCondition.lte = value;
+      if (condition.gte) fieldCondition.gte = value;
+      if (condition.e) fieldCondition.equals = value;
     }
 
     return fieldCondition;
