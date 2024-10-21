@@ -1,3 +1,5 @@
+import { images } from "@prisma/client";
+
 type Condition = {
   name: string;
   value: any;
@@ -16,7 +18,7 @@ type QueryOptions = {
 
 type QueryValue = { AND?: any[]; OR?: any[] };
 
-export function buildQueryConditions(conditions: QueryOptions): QueryValue {
+export const buildQueryConditions = (conditions: QueryOptions): QueryValue => {
   const buildCondition = (condition: Condition) => {
     const parts = condition.name.split(".");
     const field = parts.pop()!; // The actual field (e.g., 'title', 'name', 'city')
@@ -102,4 +104,52 @@ export function buildQueryConditions(conditions: QueryOptions): QueryValue {
   }
 
   return query;
-}
+};
+export const fetchPrevImg = async (
+  entity: any,
+  where: { [key: string]: string | number | undefined },
+  field: string
+) => {
+  if (where && Object.keys(where).length > 0) {
+    const selectObject = { [field]: { select: { public_id: true } } };
+    const result = await entity.findUnique({
+      where,
+      select: selectObject,
+    });
+    return result ? result[field] : null;
+  }
+  return null;
+};
+
+export const buildImages = (
+  fieldName: string,
+  images: images[] | images,
+  type: "multiple" | "single"
+) => {
+  if (type == "multiple") {
+    return Array.isArray(images) && images.length > 0
+      ? {
+          [fieldName]: {
+            set: [],
+            create: images.map((img: any) => ({
+              url: img.url,
+              public_id: img.public_id,
+            })),
+          },
+        }
+      : {};
+  } else {
+    return images
+      ? {
+          [fieldName]: {
+            create: {
+              url: Array.isArray(images) ? images[0].url : images.url,
+              public_id: Array.isArray(images)
+                ? images[0].public_id
+                : images.public_id,
+            },
+          },
+        }
+      : {};
+  }
+};

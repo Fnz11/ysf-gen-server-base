@@ -59,3 +59,46 @@ export const deleteImage = async (publicIds: string[]) => {
     logger.error(`[Error deleting image]: ${JSON.stringify(error)}`);
   }
 };
+
+type UploadImageService = {
+  type: "multiple" | "single";
+  images: string | string[];
+  handleDelete: () => void;
+};
+
+export const uploadImageService = async ({
+  type,
+  images,
+  handleDelete,
+}: UploadImageService) => {
+  let res: any = type === "multiple" ? [] : "";
+
+  const uploadSingleImage = async (image: string, folder: string) => {
+    const uploadedImage = await uploadImage({ image, folder });
+    return uploadedImage
+      ? { url: uploadedImage.url, public_id: uploadedImage.public_id }
+      : null;
+  };
+
+  if (images) {
+    if (typeof images === "string" && images.length > 0) {
+      const image = await uploadSingleImage(images, "images/image");
+      if (image) res = image;
+    } else if (
+      Array.isArray(images) &&
+      images.every((item) => typeof item === "string") &&
+      images.length > 0
+    ) {
+      for (const image of images) {
+        const uploadedImage = await uploadSingleImage(
+          image,
+          "post_images/image"
+        );
+        if (uploadedImage) res.push(uploadedImage);
+      }
+    }
+    handleDelete();
+  }
+
+  return res;
+};
