@@ -41,8 +41,11 @@ export function buildQueryConditions(conditions: QueryOptions): QueryValue {
   const buildFieldCondition = (condition: Condition) => {
     let fieldCondition: any = {};
     let value = condition.value;
-    if (condition.type == "boolean") {
-      if (typeof condition.isNot !== undefined) {
+
+    if (Array.isArray(value)) {
+      fieldCondition.in = value.map((val) => val);
+    } else if (condition.type === "boolean") {
+      if (typeof condition.isNot !== "undefined") {
         fieldCondition.isNot = condition.isNot;
       } else {
         fieldCondition = !!condition.value;
@@ -63,8 +66,7 @@ export function buildQueryConditions(conditions: QueryOptions): QueryValue {
           value = {};
         }
       } else if (condition.type === "string") {
-        const parsedValue = value?.toString()?.trim();
-        value = parsedValue;
+        value = value?.toString()?.trim();
       }
       if (condition.contains) fieldCondition.contains = value;
       if (condition.lte) fieldCondition.lte = value;
@@ -79,13 +81,23 @@ export function buildQueryConditions(conditions: QueryOptions): QueryValue {
 
   if (conditions.and) {
     const AND = conditions.and
-      .filter((item) => !!item.value)
+      .filter(
+        (item) =>
+          !!item.value &&
+          (Array.isArray(item.value) ? item.value.length > 0 : true)
+      )
       .map(buildCondition);
     query.AND = AND.length > 0 ? AND : undefined;
   }
 
   if (conditions.or) {
-    const OR = conditions.or.filter((item) => !!item.value).map(buildCondition);
+    const OR = conditions.or
+      .filter(
+        (item) =>
+          !!item.value &&
+          (Array.isArray(item.value) ? item.value.length > 0 : true)
+      )
+      .map(buildCondition);
     query.OR = OR.length > 0 ? OR : undefined;
   }
 
