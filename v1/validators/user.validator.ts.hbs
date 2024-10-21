@@ -163,5 +163,20 @@ export type EmailProps = z.infer<typeof emailSchema>;
 export type ResetPasswordProps = z.infer<typeof resetPasswordSchema>;
 export type VerifyEmailProps = z.infer<typeof verifyEmailSchema>;
 export type UpdatePasswordProps = z.infer<typeof updatePasswordSchema>;
+export type getAllUserProps = {
+  offset?: string | null;
+  limit?: string | null;
+  user_id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  username?: string | null;
+  email?: string | null;
+  role?: string | null;
+  phone?: string | null;
+  birth_date?: string | null;
+  gender?: string | null;
+  email_verified?: string | null;
+  provider_id?: string | null;
+};
 
 // ========== Exports ==========

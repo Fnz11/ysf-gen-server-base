@@ -1,0 +1,72 @@
+type Condition = {
+  name: string;
+  value: any;
+  type: string;
+  contains?: boolean;
+  lte?: boolean;
+  gte?: boolean;
+  e?: boolean;
+  isNot?: any;
+};
+
+type QueryOptions = {
+  and?: Condition[];
+  or?: Condition[];
+};
+
+type QueryValue = { AND?: any[]; OR?: any[] };
+
+export function buildQueryConditions(conditions: QueryOptions): QueryValue {
+  const buildCondition = (condition: Condition) => {
+    const parts = condition.name.split(".");
+    const field = parts.pop()!; // The actual field (e.g., 'title', 'name', 'city')
+    let nestedQuery: any = {};
+
+    if (parts.length === 0) {
+      // Handle root level condition (not nested)
+      nestedQuery[field] = buildFieldCondition(condition);
+    } else {
+      // Build the nested condition
+      nestedQuery = parts.reverse().reduce(
+        (acc: any, part: any) => {
+          return { [part]: acc }; // Use 'select' for Prisma include structure
+        },
+        { [field]: buildFieldCondition(condition) }
+      );
+    }
+
+    return nestedQuery;
+  };
+
+  const buildFieldCondition = (condition: Condition) => {
+    let fieldCondition: any = {};
+    if (typeof condition.isNot !== undefined) {
+      fieldCondition.isNot = condition.isNot;
+    } else if (condition.type == "boolean") {
+      fieldCondition = !!condition.value;
+    } else {
+      if (condition.contains) fieldCondition.contains = condition.value;
+      if (condition.lte) fieldCondition.lte = condition.value;
+      if (condition.gte) fieldCondition.gte = condition.value;
+      if (condition.e) fieldCondition.equals = condition.value;
+    }
+
+    return fieldCondition;
+  };
+
+  const query: any = {};
+
+  if (conditions.and) {
+    const AND = conditions.and
+      .filter((item) => !!item.value)
+      .map(buildCondition);
+    query.AND = AND.length > 0 ? AND : undefined;
+  }
+
+  if (conditions.or) {
+    const OR = conditions.or.filter((item) => !!item.value).map(buildCondition);
+    query.OR = OR.length > 0 ? OR : undefined;
+  }
+
+  return query;
+}
