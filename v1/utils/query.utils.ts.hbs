@@ -41,10 +41,12 @@ export function buildQueryConditions(conditions: QueryOptions): QueryValue {
   const buildFieldCondition = (condition: Condition) => {
     let fieldCondition: any = {};
     let value = condition.value;
-    if (typeof condition.isNot !== undefined) {
-      fieldCondition.isNot = condition.isNot;
-    } else if (condition.type == "boolean") {
-      fieldCondition = !!condition.value;
+    if (condition.type == "boolean") {
+      if (typeof condition.isNot !== undefined) {
+        fieldCondition.isNot = condition.isNot;
+      } else {
+        fieldCondition = !!condition.value;
+      }
     } else {
       if (condition.type === "number") {
         const parsedValue = parseInt(condition.value, 10);
