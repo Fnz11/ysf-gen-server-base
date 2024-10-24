@@ -40,6 +40,7 @@ import {
 } from "../utils/service.utils";
 import { GoogleUserInfoProps } from "../types/general.types";
 import { OAuthProvider, Role } from "@prisma/client";
+import { buildQueryConditions } from "../utils/query.utils";
 
 // ========== Init ==========
 const Users = prisma.users;
